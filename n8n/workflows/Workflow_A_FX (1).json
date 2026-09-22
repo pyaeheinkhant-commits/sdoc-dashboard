@@ -1,0 +1,1141 @@
+{
+  "name": "Workflow_A_FX",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "dbc1cf80-b770-41c4-af10-c333c254e53b",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3824,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://dubai-eco-weeks-talked.trycloudflare.com/emails",
+        "options": {}
+      },
+      "id": "8f9ccb5b-d302-4713-bf00-8565785e712d",
+      "name": "List Docker Emails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3600,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming = $input.all();\nif (incoming.length === 1 && Array.isArray(incoming[0].json)) {\n  return incoming[0].json.map((email) => ({ json: email }));\n}\nreturn incoming;"
+      },
+      "id": "3f280050-355a-422c-9b7d-d5b61fa8b728",
+      "name": "Normalize Email List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3376,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item, index) => ({\n  json: {\n    ...item.json,\n    email_number: index + 1,\n  },\n}));"
+      },
+      "id": "37eb9745-a603-4d14-b3a5-3857d9495014",
+      "name": "Add Email Number",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3152,
+        608
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "e37c7836-0435-4b0f-a07f-bfee6f839515",
+      "name": "Batch Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -2704,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $json;\nconst body = String(email.body ?? '');\nconst cleanBody = body.split(/\\n(?:On .+wrote:|-----Original Message-----|From:.*\\nSent:)/i)[0].trim();\nreturn [{ json: { ...email, clean_body: cleanBody } }];"
+      },
+      "id": "76fec30c-f4b5-4f22-95db-810183c54fea",
+      "name": "Remove Quoted History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2704,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "emails",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        }
+      },
+      "id": "8e35d4ae-3544-457d-8ffe-c69b859ea875",
+      "name": "Get many rows",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2480,
+        496
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Remove Quoted History').item.json;\nconst stored = $json ?? {};\n\nconst foundSameEmail =\n  Boolean(stored.id) &&\n  String(stored.email_id ?? '') === String(original.email_id ?? '');\n\nreturn [\n  {\n    json: {\n      ...original,\n\n      // Use stored classification only if it belongs to this exact email\n      ...(foundSameEmail\n        ? {\n            category: stored.category,\n            status: stored.status,\n            review_reason: stored.review_reason,\n            has_defect: stored.has_defect,\n            defect_fields: stored.defect_fields,\n          }\n        : {}),\n\n      already_processed: foundSameEmail,\n    },\n  },\n];"
+      },
+      "id": "25a98930-12ae-4f81-a881-e6d663dbad38",
+      "name": "Code in JavaScript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2256,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6f886da1-1c7b-4848-899a-675f256ae90a",
+              "leftValue": "={{ $json.already_processed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5de5b2bc-c8c1-4a88-8873-d83f065baa4b",
+      "name": "If1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2032,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "BL_COMPARISON",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "832584cf-4769-4462-aa65-5d093bb2d112"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "BL_COMPARISON"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "2e89590d-bd58-4348-97f8-2b1669a15178",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "SI_REQUEST",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SI_REQUEST"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "44f1fd9d-3775-40b6-ba38-55b985bbe4e5",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "INVOICE_QUERY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "INVOICE_QUERY"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "05711ff3-a893-436c-8647-ff1f8ff2d24c",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "GENERAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "GENERAL"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "75f3b440-88d0-424e-8858-c1356bc04b2d",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "SPAM",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "SPAM"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "7c956d95-eed3-4d68-802e-dc8b9cf0def3",
+      "name": "Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -912,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "comparisons",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        }
+      },
+      "id": "9d7a9a04-eec9-4e84-b65a-e773ed0daa3d",
+      "name": "Find Saved Comparison",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -736,
+        16
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Switch').item.json;\nconst stored = $json ?? {};\n\nconst completedStatuses = new Set([\n  'OK',\n  'MISMATCH',\n  'NEEDS_REVIEW',\n]);\n\nconst sameEmail =\n  String(stored.email_id ?? '') === String(original.email_id ?? '');\n\nconst comparisonDone =\n  sameEmail &&\n  String(stored.category ?? '') === 'BL_COMPARISON' &&\n  completedStatuses.has(String(stored.status ?? ''));\n\nreturn [\n  {\n    json: {\n      ...original,\n\n      // Use the stored final result only when comparison is truly complete\n      ...(comparisonDone\n        ? {\n            status: stored.status,\n            review_reason: stored.review_reason,\n            has_defect: stored.has_defect,\n            defect_fields: stored.defect_fields,\n            comparison_summary: stored.comparison_summary,\n          }\n        : {}),\n\n      comparison_done: comparisonDone,\n    },\n  },\n];"
+      },
+      "id": "acc512ff-a449-4ff8-bf8a-0f212d27b02d",
+      "name": "Prepare Comparison Cache",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -528,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e79eade3-f404-4a17-93a0-1eb3533d6ab5",
+              "leftValue": "={{ $json.comparison_done }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d5b162e5-c122-4137-b597-5f3ec051128d",
+      "name": "If2",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -272,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const emailId = String($json.email_id ?? '');\nconst match = emailId.match(/^email_(\\d+)$/i);\n\nif (!match) {\n  throw new Error(`Cannot find email number in email_id: ${emailId}`);\n}\n\nconst emailNumber = Number(match[1]);\n\nreturn [\n  {\n    json: {\n      ...$json,\n      email_number: emailNumber,\n      pause_after_batch: emailNumber % 10 === 0,\n    },\n  },\n];"
+      },
+      "id": "dc3cad56-5644-4f4a-b831-1c0eb179b588",
+      "name": "Check Every 10",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "84290b84-7326-4632-a3a8-6ef700a105f3",
+              "leftValue": "={{ $json.pause_after_batch }}",
+              "rightValue": "is true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "d2a9f205-c8b1-4f7b-98d8-5b8ce899d4fb",
+      "name": "If",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -48,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "id": "26f6986e-bb94-4955-9ffa-747673208eb3",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        864
+      ],
+      "webhookId": "6b9f580c-59e4-4f89-b7c4-1ebc4699bd03"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "4aa0cd52-0fc5-4e6c-be56-0b7844786458",
+      "name": "Process 1 Email at a Time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2928,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "Workflow_BL.C_FX",
+          "cachedResultUrl": "/workflow/CpJHEo32TktThq2V",
+          "mode": "list",
+          "value": "CpJHEo32TktThq2V"
+        },
+        "options": {}
+      },
+      "id": "1faa81cb-8c0b-41bf-80f0-e7c6aaf6feaa",
+      "name": "Call Workflow_c_FX",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -64,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "Workflow_D_FX",
+          "cachedResultUrl": "/workflow/tDnE2MIZarnECH4l",
+          "mode": "list",
+          "value": "tDnE2MIZarnECH4l"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "6cefc39c-117a-4280-919c-e13cb52a7dd7",
+      "name": "Open Review Case (D)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        464,
+        16
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $('Remove Quoted History').item.json;\n\nconst emailId = String(email.email_id ?? '');\nconst sender = String(email.from ?? email.sender ?? '');\nconst subject = String(email.subject ?? '');\nconst body = String(email.clean_body ?? email.body ?? '');\nconst attachments = Array.isArray(email.attachments)\n  ? email.attachments.join(', ')\n  : '';\n\nif (!emailId) {\n  throw new Error('No email_id was received from Remove Quoted History');\n}\n\nconst prompt = `You are SDOC, a shipping-operations email classifier.\n\nReturn exactly one valid JSON object. No Markdown. No explanation outside JSON.\n\nChoose exactly one category:\nBL_COMPARISON, SI_REQUEST, INVOICE_QUERY, GENERAL, SPAM.\n\nDefinitions:\n- BL_COMPARISON: asks to compare/check a Shipping Instruction (SI) against a draft Bill of Lading (BL).\n- SI_REQUEST: asks for SI instructions, a new SI, or a draft BL without comparison.\n- INVOICE_QUERY: billing, invoice, freight charge, payment, or cost question.\n- GENERAL: genuine shipping operation email that does not fit above.\n- SPAM: irrelevant promotion, scam, phishing, or junk.\n\nRequired JSON format:\n{\n  \"category\": \"GENERAL\",\n  \"category_confidence\": 0.0,\n  \"classification_reason\": \"short reason\"\n}\n\nEMAIL ID: ${emailId}\nFROM: ${sender}\nSUBJECT: ${subject}\nBODY:\n${body}\n\nATTACHMENTS: ${attachments}`;\n\nreturn [\n  {\n    json: {\n      ...email,\n      gemini_body: {\n        contents: [\n          {\n            role: 'user',\n            parts: [\n              { text: prompt },\n            ],\n          },\n        ],\n      },\n    },\n  },\n];"
+      },
+      "id": "586da69f-19ec-4da6-942d-7d4d6483aeb0",
+      "name": "Build Classification Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1808,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"openai/gpt-oss-20b\",\n  messages: [\n    {\n      role: \"user\",\n      content: $json.gemini_body.contents[0].parts[0].text\n    }\n  ],\n  temperature: 0.1,\n  reasoning_format: \"hidden\",\n  response_format: {\n    type: \"json_object\"\n  }\n}) }}",
+        "options": {}
+      },
+      "id": "6f45d529-8844-4b51-b49e-efab6d249856",
+      "name": "Groq Classify Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1584,
+        432
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "Qea8plC3oy2vtLd9",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Remove Quoted History').item.json;\n\nconst rawText = String(\n  $json.choices?.[0]?.message?.content ?? ''\n).trim();\n\nif (!rawText) {\n  throw new Error(\n    `Groq returned no message content. Response: ${JSON.stringify($json).slice(0, 500)}`\n  );\n}\n\nconst jsonText = rawText.match(/\\{[\\s\\S]*\\}/)?.[0];\n\nif (!jsonText) {\n  throw new Error(`Groq did not return JSON: ${rawText.slice(0, 500)}`);\n}\n\nlet result;\ntry {\n  result = JSON.parse(jsonText);\n} catch {\n  throw new Error(`Groq returned invalid JSON: ${rawText.slice(0, 500)}`);\n}\n\nconst validCategories = new Set([\n  'BL_COMPARISON',\n  'SI_REQUEST',\n  'INVOICE_QUERY',\n  'GENERAL',\n  'SPAM',\n]);\n\nconst category = String(result.category ?? '')\n  .trim()\n  .toUpperCase();\n\nif (!validCategories.has(category)) {\n  throw new Error(\n    `Invalid category from Groq: \"${result.category}\". Raw answer: ${rawText.slice(0, 500)}`\n  );\n}\n\nreturn [\n  {\n    json: {\n      ...source,\n      category,\n      category_confidence: Number(result.category_confidence ?? 0),\n      classification_reason: String(result.classification_reason ?? ''),\n      status: 'CLASSIFIED',\n      review_reason: null,\n      has_defect: false,\n      defect_fields: [],\n    },\n  },\n];"
+      },
+      "id": "28a67f44-d962-4e2c-a1f5-145890bc176b",
+      "name": "Validate Classification JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1360,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "emails",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_id",
+              "fieldValue": "={{ $json.email_id }}"
+            },
+            {
+              "fieldId": "sender",
+              "fieldValue": "={{ $json.from }}"
+            },
+            {
+              "fieldId": "subject",
+              "fieldValue": "={{ $json.subject }}"
+            },
+            {
+              "fieldId": "body",
+              "fieldValue": "={{ $json.clean_body }}"
+            },
+            {
+              "fieldId": "category",
+              "fieldValue": "={{ $json.category }}"
+            },
+            {
+              "fieldId": "category_confidence",
+              "fieldValue": "={{ $json.category_confidence }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.status }}"
+            },
+            {
+              "fieldId": "review_reason",
+              "fieldValue": "={{ $json.review_reason }}"
+            },
+            {
+              "fieldId": "has_defect",
+              "fieldValue": "={{ $json.has_defect }}"
+            },
+            {
+              "fieldId": "defect_fields",
+              "fieldValue": "={{ JSON.stringify($json.defect_fields) }}"
+            }
+          ]
+        }
+      },
+      "id": "28cb63c3-1e5d-45fe-9b1a-3d871195210d",
+      "name": "Create a row",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1136,
+        432
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Workflow for BL_Comparison"
+      },
+      "id": "bf5f54ac-33d5-4529-b5d6-1123fde97934",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-needs-review",
+                    "leftValue": "={{ $json.status }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "NEEDS_REVIEW"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "NEEDS_REVIEW"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-mismatch",
+                    "leftValue": "={{ $json.status }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "MISMATCH"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "MISMATCH"
+            },
+            {
+              "conditions": {
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "route-mismatch-found",
+                    "leftValue": "={{ $json.status }}",
+                    "operator": {
+                      "operation": "equals",
+                      "type": "string"
+                    },
+                    "rightValue": "MISMATCH_FOUND"
+                  }
+                ],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                }
+              },
+              "renameOutput": true,
+              "outputKey": "MISMATCH_FOUND"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "d6c2d5ef-bba1-4fc2-9bd8-d0e2b1d752e5",
+      "name": "Route After Comparison",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "Workflow_E_FX",
+          "cachedResultUrl": "/workflow/KovXcPBCFadfT6tp",
+          "mode": "list",
+          "value": "KovXcPBCFadfT6tp"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "a8fff17b-ed87-4178-ad9e-7b01b848751d",
+      "name": "Open Resolution Case (E)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        464,
+        208
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "List Docker Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Docker Emails": {
+      "main": [
+        [
+          {
+            "node": "Normalize Email List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Email List": {
+      "main": [
+        [
+          {
+            "node": "Add Email Number",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Email Number": {
+      "main": [
+        [
+          {
+            "node": "Process 1 Email at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Quoted History": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Classification Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Find Saved Comparison",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Every 10",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Every 10",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Every 10",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Every 10",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Every 10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Saved Comparison": {
+      "main": [
+        [
+          {
+            "node": "Prepare Comparison Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Comparison Cache": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Route After Comparison",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Workflow_c_FX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Every 10": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Process 1 Email at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Process 1 Email at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process 1 Email at a Time": {
+      "main": [
+        [
+          {
+            "node": "Batch Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Remove Quoted History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Classification Request": {
+      "main": [
+        [
+          {
+            "node": "Groq Classify Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Classify Email": {
+      "main": [
+        [
+          {
+            "node": "Validate Classification JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Classification JSON": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Workflow_c_FX": {
+      "main": [
+        [
+          {
+            "node": "Route After Comparison",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route After Comparison": {
+      "main": [
+        [
+          {
+            "node": "Open Review Case (D)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Open Resolution Case (E)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Open Resolution Case (E)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Every 10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open Review Case (D)": {
+      "main": [
+        [
+          {
+            "node": "Check Every 10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open Resolution Case (E)": {
+      "main": [
+        [
+          {
+            "node": "Check Every 10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "93fefb34-33e6-48fb-ba20-7c534773bfe9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "926164ef32f690c528f5607e0d940c8edb18dc4a2a0051a00bb69b796a890562"
+  },
+  "nodeGroups": [
+    {
+      "id": "9ac0ab62-fa9a-4154-9e38-a674432dacb8",
+      "name": "data lodaer",
+      "nodeIds": [
+        "8f9ccb5b-d302-4713-bf00-8565785e712d",
+        "3f280050-355a-422c-9b7d-d5b61fa8b728",
+        "37eb9745-a603-4d14-b3a5-3857d9495014"
+      ]
+    },
+    {
+      "id": "780c9551-8aed-4f0a-adcb-51f25af8456c",
+      "name": "Classify",
+      "nodeIds": [
+        "76fec30c-f4b5-4f22-95db-810183c54fea",
+        "28a67f44-d962-4e2c-a1f5-145890bc176b",
+        "28cb63c3-1e5d-45fe-9b1a-3d871195210d",
+        "7c956d95-eed3-4d68-802e-dc8b9cf0def3",
+        "6f45d529-8844-4b51-b49e-efab6d249856",
+        "586da69f-19ec-4da6-942d-7d4d6483aeb0",
+        "8e35d4ae-3544-457d-8ffe-c69b859ea875",
+        "25a98930-12ae-4f81-a881-e6d663dbad38",
+        "5de5b2bc-c8c1-4a88-8873-d83f065baa4b"
+      ]
+    }
+  ],
+  "id": "TUbTA3ocN9FBJREf",
+  "tags": []
+}

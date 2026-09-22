@@ -1,0 +1,932 @@
+{
+  "name": "Workflow_D_FX",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Workflow D: Human review\nNEEDS_REVIEW → create review case → dashboard evidence → reviewer decision → update case → retry or close.\n\nDashboard waits, then POST to the Wait webhook:\n```json\n{\n  \"decision\": \"RETRY\",\n  \"reviewer\": \"ops\",\n  \"comment\": \"note\"\n}\n```\nDecisions: CONFIRM_OK | CONFIRM_MISMATCH | RETRY | CLOSE",
+        "height": 320,
+        "width": 420
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -160,
+        -80
+      ],
+      "typeVersion": 1,
+      "id": "07e22a63-5a75-4a36-8a21-e98c1c3dbf5b",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {},
+      "id": "64fd5cf2-5333-46b1-815e-b15709367508",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        208,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "90e94af1-5c3f-411a-a5fe-c4dd97176c32",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        208,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json ?? {};\nconst emailId = String(raw.email_id ?? raw['Email ID'] ?? '').trim() || 'email_050';\nif (!/^email_\\d{3}$/.test(emailId)) {\n  throw new Error('Enter an email ID such as email_050');\n}\nreturn [{ json: { ...raw, email_id: emailId } }];"
+      },
+      "id": "fca7228f-ad8b-4885-9e60-9ba64320c2d9",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "comparisons",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        656,
+        256
+      ],
+      "id": "b9c1bd38-97d5-4610-951e-9ee4f076bf9f",
+      "name": "Get Comparison",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "emails",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Normalize Input').item.json.email_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        656,
+        480
+      ],
+      "id": "6359247c-5b0d-4160-b22f-100d426815b7",
+      "name": "Get Email",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Normalize Input').item.json;\nconst comparison = $('Get Comparison').item.json ?? {};\nconst email = $('Get Email').item.json ?? {};\n\nconst sameComparison = String(comparison.email_id ?? '') === String(input.email_id);\nconst sameEmail = String(email.email_id ?? '') === String(input.email_id);\n\nconst reviewReason = String(\n  (sameComparison ? comparison.review_reason : input.review_reason) ?? 'unreadable'\n);\nconst comparisonStatus = String(\n  (sameComparison ? comparison.status : input.status) ?? 'NEEDS_REVIEW'\n);\nconst defectFields = sameComparison\n  ? (Array.isArray(comparison.defect_fields) ? comparison.defect_fields : [])\n  : (Array.isArray(input.defect_fields) ? input.defect_fields : []);\n\nconst evidence = {\n  email_id: input.email_id,\n  sender: sameEmail ? email.sender : (input.sender ?? input.from ?? ''),\n  subject: sameEmail ? email.subject : (input.subject ?? ''),\n  body: sameEmail ? (email.body ?? '') : (input.clean_body ?? input.body ?? ''),\n  category: sameEmail ? email.category : (input.category ?? 'BL_COMPARISON'),\n  comparison_status: comparisonStatus,\n  review_reason: reviewReason,\n  has_defect: Boolean(sameComparison ? comparison.has_defect : input.has_defect),\n  defect_fields: defectFields,\n  comparison_summary: String(\n    comparison.comparison_summary ?? input.comparison_summary ?? ''\n  ),\n  recommended_action: 'Human verification of SI/BL evidence',\n};\n\nreturn [{\n  json: {\n    email_id: input.email_id,\n    comparison_id: sameComparison ? (comparison.id ?? null) : null,\n    review_reason: reviewReason,\n    evidence_json: evidence,\n    evidence_json_text: JSON.stringify(evidence),\n    status: 'OPEN',\n    assigned_to: '',\n    reviewer_decision: '',\n    reviewer_comment: '',\n    webhook_url: $execution.resumeUrl ?? '',\n    event_type: 'REVIEW_OPENED',\n    actor_type: 'system',\n    details_json_text: JSON.stringify({ review_reason: reviewReason, evidence }),\n  },\n}];"
+      },
+      "id": "1c00fa04-70bb-4b1b-a924-134fd75e18d0",
+      "name": "Build Review Case",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "review_cases",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_id",
+              "fieldValue": "={{ $json.email_id }}"
+            },
+            {
+              "fieldId": "comparison_id",
+              "fieldValue": "={{ $json.comparison_id }}"
+            },
+            {
+              "fieldId": "review_reason",
+              "fieldValue": "={{ $json.review_reason }}"
+            },
+            {
+              "fieldId": "evidence_json",
+              "fieldValue": "={{ $json.evidence_json_text }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.status }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        256
+      ],
+      "id": "85052868-4a00-4199-93fb-6f1e3fe69bae",
+      "name": "Create Review Case",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "tableId": "resolution_events",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_id",
+              "fieldValue": "={{ $json.email_id }}"
+            },
+            {
+              "fieldId": "event_type",
+              "fieldValue": "={{ $json.event_type }}"
+            },
+            {
+              "fieldId": "actor_type",
+              "fieldValue": "={{ $json.actor_type }}"
+            },
+            {
+              "fieldId": "details_json",
+              "fieldValue": "={{ $json.details_json_text }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        480
+      ],
+      "id": "7eeec44f-12f2-46d1-b7d6-fe836ca68faf",
+      "name": "Log Review Opened",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "POST",
+        "limitWaitTime": true,
+        "resumeAmount": 14,
+        "resumeUnit": "days",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1328,
+        336
+      ],
+      "id": "b2c749e5-215f-44de-ad36-662b9b99efae",
+      "name": "Wait for Reviewer Decision",
+      "webhookId": "64140697-0c96-4993-9b5f-56ffdd41c6e7"
+    },
+    {
+      "parameters": {
+        "jsCode": "const opened = $('Build Review Case').item.json;\nconst body = $json ?? {};\nconst decision = String(body.decision ?? body.reviewer_decision ?? '')\n  .trim()\n  .toUpperCase();\nconst allowed = new Set(['CONFIRM_OK', 'CONFIRM_MISMATCH', 'RETRY', 'CLOSE']);\nif (!allowed.has(decision)) {\n  throw new Error(\n    `Invalid decision \"${decision}\". POST JSON with decision: CONFIRM_OK, CONFIRM_MISMATCH, RETRY, or CLOSE.`\n  );\n}\n\nconst now = new Date().toISOString();\nconst map = {\n  CONFIRM_OK: {\n    review_status: 'RESOLVED',\n    email_status: 'OK',\n    comparison_status: 'OK',\n    has_defect: false,\n    next: 'DONE',\n    resolved_at: now,\n  },\n  CONFIRM_MISMATCH: {\n    review_status: 'RESOLVED',\n    email_status: 'MISMATCH_FOUND',\n    comparison_status: 'MISMATCH',\n    has_defect: true,\n    next: 'CALL_E',\n    resolved_at: now,\n  },\n  RETRY: {\n    review_status: 'RETRYING',\n    email_status: 'PROCESSING',\n    comparison_status: 'PROCESSING',\n    has_defect: false,\n    next: 'RETRY',\n    resolved_at: null,\n  },\n  CLOSE: {\n    review_status: 'CLOSED',\n    email_status: 'CLOSED',\n    comparison_status: String(opened.evidence_json?.comparison_status ?? 'NEEDS_REVIEW'),\n    has_defect: Boolean(opened.evidence_json?.has_defect),\n    next: 'DONE',\n    resolved_at: now,\n  },\n};\n\nconst mapped = map[decision];\nreturn [{\n  json: {\n    ...opened,\n    reviewer_decision: decision,\n    reviewer_comment: String(body.comment ?? body.reviewer_comment ?? ''),\n    assigned_to: String(body.reviewer ?? body.assigned_to ?? 'dashboard_reviewer'),\n    ...mapped,\n    event_type: 'REVIEWER_DECISION',\n    actor_type: 'human',\n    actor_id: String(body.reviewer ?? body.assigned_to ?? 'dashboard_reviewer'),\n    details_json_text: JSON.stringify({\n      decision,\n      comment: body.comment ?? body.reviewer_comment ?? '',\n    }),\n  },\n}];"
+      },
+      "id": "b7534573-88d5-49ca-aaf1-818ce4511f42",
+      "name": "Parse Reviewer Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "review_cases",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.review_status }}"
+            },
+            {
+              "fieldId": "assigned_to",
+              "fieldValue": "={{ $json.assigned_to }}"
+            },
+            {
+              "fieldId": "reviewer_decision",
+              "fieldValue": "={{ $json.reviewer_decision }}"
+            },
+            {
+              "fieldId": "reviewer_comment",
+              "fieldValue": "={{ $json.reviewer_comment }}"
+            },
+            {
+              "fieldId": "resolved_at",
+              "fieldValue": "={{ $json.resolved_at }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1776,
+        336
+      ],
+      "id": "83b97341-ed8f-498f-9358-df7dd2285974",
+      "name": "Update Review Case",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "emails",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.email_status }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        336
+      ],
+      "id": "907a4616-e3e5-4e7d-bddd-b57ea6ff47cd",
+      "name": "Update Email Status",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "comparisons",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.comparison_status }}"
+            },
+            {
+              "fieldId": "has_defect",
+              "fieldValue": "={{ $json.has_defect }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2224,
+        336
+      ],
+      "id": "8d6e2ed2-c0fe-4629-acd1-a492dc27efdd",
+      "name": "Update Comparison Status",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "resolution_events",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_id",
+              "fieldValue": "={{ $json.email_id }}"
+            },
+            {
+              "fieldId": "event_type",
+              "fieldValue": "={{ $json.event_type }}"
+            },
+            {
+              "fieldId": "actor_type",
+              "fieldValue": "={{ $json.actor_type }}"
+            },
+            {
+              "fieldId": "actor_id",
+              "fieldValue": "={{ $json.actor_id }}"
+            },
+            {
+              "fieldId": "details_json",
+              "fieldValue": "={{ $json.details_json_text }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2448,
+        336
+      ],
+      "id": "ed10f00f-177a-43d0-b021-741cad6bb467",
+      "name": "Log Reviewer Decision",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "50ff7b9e-586c-4505-820d-d9191140182c",
+                    "leftValue": "={{ $json.next }}",
+                    "rightValue": "RETRY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "RETRY"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d35e126a-77cd-47a8-9a40-6455a30cb9f9",
+                    "leftValue": "={{ $json.next }}",
+                    "rightValue": "CALL_E",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CALL_E"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "306589e2-68d4-4e4f-830f-40eda4cb0aaa",
+                    "leftValue": "={{ $json.next }}",
+                    "rightValue": "DONE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "DONE"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2672,
+        336
+      ],
+      "id": "cce94c6e-893e-4e2f-8e06-84cbe4a36e51",
+      "name": "Switch Decision",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "Workflow_BL.C_FX",
+          "cachedResultUrl": "/workflow/CpJHEo32TktThq2V",
+          "mode": "list",
+          "value": "CpJHEo32TktThq2V"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2896,
+        144
+      ],
+      "name": "Retry Workflow C",
+      "id": "c0092d84-e251-4238-9976-849672463457"
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Parse Reviewer Decision').item.json;\nconst result = $json ?? {};\nconst status = String(result.status ?? '').toUpperCase();\nconst stillNeedsReview = status === 'NEEDS_REVIEW';\nconst mismatch = status === 'MISMATCH' || status === 'MISMATCH_FOUND';\nreturn [{\n  json: {\n    ...original,\n    email_id: original.email_id,\n    retry_status: status || 'UNKNOWN',\n    still_needs_review: stillNeedsReview,\n    retry_is_mismatch: mismatch,\n    review_status: stillNeedsReview ? 'OPEN' : (mismatch ? 'RESOLVED' : 'RESOLVED'),\n    email_status: stillNeedsReview ? 'NEEDS_REVIEW' : (mismatch ? 'MISMATCH_FOUND' : (status || 'OK')),\n    comparison_status: stillNeedsReview ? 'NEEDS_REVIEW' : (mismatch ? 'MISMATCH' : (status || 'OK')),\n    next: stillNeedsReview ? 'DONE' : (mismatch ? 'CALL_E' : 'DONE'),\n    event_type: 'RETRY_COMPLETE',\n    details_json_text: JSON.stringify({ retry_status: status }),\n  },\n}];"
+      },
+      "id": "8b127be0-fa4e-471d-b998-f6521e2f71ea",
+      "name": "Check Retry Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7cc7998f-082d-46d3-9992-7bb99c787af1",
+              "leftValue": "={{ $json.retry_is_mismatch }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3344,
+        144
+      ],
+      "id": "8cd2e4c7-a634-4b71-bf78-fd8b46d03f80",
+      "name": "If Retry Became Mismatch"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "Workflow_E_FX",
+          "cachedResultUrl": "/workflow/KovXcPBCFadfT6tp",
+          "mode": "list",
+          "value": "KovXcPBCFadfT6tp"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        32
+      ],
+      "name": "Start Resolution Follow-up",
+      "id": "64a0ee40-4e74-4268-889c-3e205f27d86b"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "review_cases",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.review_status }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3568,
+        256
+      ],
+      "id": "2acf7838-92f0-4472-8f99-3a74ab3c7a82",
+      "name": "Reopen Review If Needed",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "Workflow_E_FX",
+          "cachedResultUrl": "/workflow/KovXcPBCFadfT6tp",
+          "mode": "list",
+          "value": "KovXcPBCFadfT6tp"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2896,
+        336
+      ],
+      "name": "Call Workflow E",
+      "id": "ade6920f-3199-497c-a466-1a0be3092044"
+    },
+    {
+      "parameters": {},
+      "id": "2c1efffb-33c1-408e-82a4-4cb64146c655",
+      "name": "Review Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2896,
+        528
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Get Comparison",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Comparison": {
+      "main": [
+        [
+          {
+            "node": "Get Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Email": {
+      "main": [
+        [
+          {
+            "node": "Build Review Case",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Review Case": {
+      "main": [
+        [
+          {
+            "node": "Create Review Case",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Review Case": {
+      "main": [
+        [
+          {
+            "node": "Log Review Opened",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Review Opened": {
+      "main": [
+        [
+          {
+            "node": "Wait for Reviewer Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Reviewer Decision": {
+      "main": [
+        [
+          {
+            "node": "Parse Reviewer Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Reviewer Decision": {
+      "main": [
+        [
+          {
+            "node": "Update Review Case",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Review Case": {
+      "main": [
+        [
+          {
+            "node": "Update Email Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Email Status": {
+      "main": [
+        [
+          {
+            "node": "Update Comparison Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Comparison Status": {
+      "main": [
+        [
+          {
+            "node": "Log Reviewer Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Reviewer Decision": {
+      "main": [
+        [
+          {
+            "node": "Switch Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Decision": {
+      "main": [
+        [
+          {
+            "node": "Retry Workflow C",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Workflow E",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Review Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Review Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Workflow C": {
+      "main": [
+        [
+          {
+            "node": "Check Retry Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Retry Result": {
+      "main": [
+        [
+          {
+            "node": "If Retry Became Mismatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Retry Became Mismatch": {
+      "main": [
+        [
+          {
+            "node": "Start Resolution Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reopen Review If Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "281f4a57-83d9-4833-b48d-382d7f0231ec",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "926164ef32f690c528f5607e0d940c8edb18dc4a2a0051a00bb69b796a890562"
+  },
+  "nodeGroups": [
+    {
+      "id": "7019117e-d29f-4d95-8e1d-4ecc38f3268a",
+      "name": "Create review case",
+      "nodeIds": [
+        "fca7228f-ad8b-4885-9e60-9ba64320c2d9",
+        "b9c1bd38-97d5-4610-951e-9ee4f076bf9f",
+        "6359247c-5b0d-4160-b22f-100d426815b7",
+        "1c00fa04-70bb-4b1b-a924-134fd75e18d0",
+        "85052868-4a00-4199-93fb-6f1e3fe69bae",
+        "7eeec44f-12f2-46d1-b7d6-fe836ca68faf"
+      ]
+    }
+  ],
+  "id": "tDnE2MIZarnECH4l",
+  "tags": []
+}

@@ -1,0 +1,1354 @@
+{
+  "name": "Workflow_E_FX",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Workflow E: Resolution follow-up\nMISMATCH_FOUND → draft correction → human approval → export message → CORRECTION_REQUESTED → new document → reprocess → RESOLVED or another review case.\n\nApproval webhook:\n```json\n{ \"decision\": \"APPROVE\", \"reviewer\": \"ops\" }\n```\nNew document webhook:\n```json\n{ \"replacement_email_id\": \"email_052\" }\n```",
+        "height": 340,
+        "width": 440
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "0343f2bc-7908-4c83-8124-07fac5902e71",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {},
+      "id": "d2f455a1-547a-402e-9c26-80e0a886a558",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        208,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "c6da0423-88d9-4722-a53e-4656b014dc67",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        208,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json ?? {};\nconst emailId = String(raw.email_id ?? raw['Email ID'] ?? '').trim() || 'email_051';\nif (!/^email_\\d{3}$/.test(emailId)) {\n  throw new Error('Enter an email ID such as email_051');\n}\nreturn [{ json: { ...raw, email_id: emailId } }];"
+      },
+      "id": "9087a683-b4ea-42d8-9385-4c6180cc8c4e",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "comparisons",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        656,
+        256
+      ],
+      "id": "1ef35adc-379a-4733-a4a9-5ffbf78c102e",
+      "name": "Get Comparison",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "emails",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Normalize Input').item.json.email_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        656,
+        480
+      ],
+      "id": "263a8cc2-e3a7-4611-b8d1-b022c36ced0a",
+      "name": "Get Email",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Normalize Input').item.json;\nconst comparison = $('Get Comparison').item.json ?? {};\nconst email = $('Get Email').item.json ?? {};\nconst sameComparison = String(comparison.email_id ?? '') === String(input.email_id);\nconst sameEmail = String(email.email_id ?? '') === String(input.email_id);\n\nconst sender = sameEmail ? String(email.sender ?? '') : String(input.sender ?? input.from ?? '');\nconst subject = sameEmail ? String(email.subject ?? '') : String(input.subject ?? '');\nconst defectFields = sameComparison\n  ? (Array.isArray(comparison.defect_fields) ? comparison.defect_fields : [])\n  : (Array.isArray(input.defect_fields) ? input.defect_fields : []);\nconst summary = String(comparison.comparison_summary ?? input.comparison_summary ?? '');\n\nconst prompt = `You are SDOC, a shipping-operations assistant.\nDraft a short correction request email about SI vs draft BL mismatches.\n\nReturn exactly one JSON object. No Markdown.\n{\n  \"to\": \"recipient@example.com\",\n  \"subject\": \"short subject\",\n  \"body\": \"email body\",\n  \"recommended_action\": \"Request corrected draft BL\"\n}\n\nRules:\n- Do not invent extra defects.\n- Ask the sender to send a corrected document.\n- Keep a professional operations tone.\n- Mention only these mismatched fields: ${defectFields.join(', ') || 'unspecified fields'}.\n\nTO: ${sender}\nORIGINAL SUBJECT: ${subject}\nEMAIL ID: ${input.email_id}\nMISMATCH SUMMARY: ${summary}\nDEFECT FIELDS: ${JSON.stringify(defectFields)}`;\n\nreturn [{\n  json: {\n    ...input,\n    sender,\n    subject,\n    defect_fields: defectFields,\n    comparison_summary: summary,\n    gemini_body: {\n      contents: [{ role: 'user', parts: [{ text: prompt }] }],\n    },\n  },\n}];"
+      },
+      "id": "9f784d82-a51a-4cd4-aa05-fc0e8d9ce289",
+      "name": "Build Draft Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"openai/gpt-oss-20b\",\n  messages: [\n    {\n      role: \"user\",\n      content: $json.gemini_body.contents[0].parts[0].text\n    }\n  ],\n  temperature: 0.1,\n  reasoning_format: \"hidden\",\n  response_format: {\n    type: \"json_object\"\n  }\n}) }}",
+        "options": {}
+      },
+      "id": "87ca8149-ffd7-4749-ba44-b4b971d0a89e",
+      "name": "Groq Draft Correction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        336
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "Qea8plC3oy2vtLd9",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Build Draft Request').item.json;\nconst rawText = String($json.choices?.[0]?.message?.content ?? '').trim();\nif (!rawText) {\n  throw new Error(`Groq returned no draft. Response: ${JSON.stringify($json).slice(0, 500)}`);\n}\nconst jsonText = rawText.match(/\\{[\\s\\S]*\\}/)?.[0];\nif (!jsonText) {\n  throw new Error(`Groq did not return JSON: ${rawText.slice(0, 500)}`);\n}\nlet result;\ntry {\n  result = JSON.parse(jsonText);\n} catch {\n  throw new Error(`Groq returned invalid JSON: ${rawText.slice(0, 500)}`);\n}\n\nconst draft = {\n  email_id: source.email_id,\n  to_address: String(result.to ?? source.sender ?? ''),\n  subject: String(result.subject ?? `Correction needed: ${source.subject}`),\n  body: String(result.body ?? ''),\n  defect_fields: Array.isArray(source.defect_fields) ? source.defect_fields : [],\n  defect_fields_text: JSON.stringify(source.defect_fields ?? []),\n  recommended_action: String(result.recommended_action ?? 'Request corrected draft BL'),\n  status: 'DRAFT',\n  approval_webhook_url: $execution.resumeUrl ?? '',\n  event_type: 'DRAFT_CORRECTION_CREATED',\n  actor_type: 'ai',\n  details_json_text: jsonText,\n};\nif (!draft.body) {\n  throw new Error('Draft correction body was empty');\n}\nreturn [{ json: draft }];"
+      },
+      "id": "021d0692-fe93-4311-9468-0ea43e0e0b10",
+      "name": "Validate Draft JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "outbound_messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_id",
+              "fieldValue": "={{ $json.email_id }}"
+            },
+            {
+              "fieldId": "to_address",
+              "fieldValue": "={{ $json.to_address }}"
+            },
+            {
+              "fieldId": "subject",
+              "fieldValue": "={{ $json.subject }}"
+            },
+            {
+              "fieldId": "body",
+              "fieldValue": "={{ $json.body }}"
+            },
+            {
+              "fieldId": "defect_fields",
+              "fieldValue": "={{ $json.defect_fields_text }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.status }}"
+            },
+            {
+              "fieldId": "approval_webhook_url",
+              "fieldValue": "={{ $json.approval_webhook_url }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1552,
+        256
+      ],
+      "id": "bdb80ec7-0991-454a-a894-8928a79eca8a",
+      "name": "Save Draft Message",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "resolution_events",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_id",
+              "fieldValue": "={{ $json.email_id }}"
+            },
+            {
+              "fieldId": "event_type",
+              "fieldValue": "={{ $json.event_type }}"
+            },
+            {
+              "fieldId": "actor_type",
+              "fieldValue": "={{ $json.actor_type }}"
+            },
+            {
+              "fieldId": "details_json",
+              "fieldValue": "={{ $json.details_json_text }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1552,
+        480
+      ],
+      "id": "1584d16d-a7e6-44a4-abde-12235d0f5343",
+      "name": "Log Draft Created",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "POST",
+        "limitWaitTime": true,
+        "resumeAmount": 14,
+        "resumeUnit": "days",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1776,
+        336
+      ],
+      "id": "1b9f7589-b2b0-4e2b-b10e-3b1ca8177e7a",
+      "name": "Wait for Human Approval",
+      "webhookId": "f4aac257-2785-46b3-a6c4-2366e46b7b6e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const draft = $('Validate Draft JSON').item.json;\nconst body = $json ?? {};\nconst decision = String(body.decision ?? body.approval ?? '')\n  .trim()\n  .toUpperCase();\nconst allowed = new Set(['APPROVE', 'REJECT']);\nif (!allowed.has(decision)) {\n  throw new Error('POST JSON with decision: APPROVE or REJECT');\n}\nreturn [{\n  json: {\n    ...draft,\n    approval_decision: decision,\n    reviewer_comment: String(body.comment ?? ''),\n    assigned_to: String(body.reviewer ?? 'dashboard_reviewer'),\n    status: decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',\n    event_type: decision === 'APPROVE' ? 'CORRECTION_APPROVED' : 'CORRECTION_REJECTED',\n    actor_type: 'human',\n    actor_id: String(body.reviewer ?? 'dashboard_reviewer'),\n    details_json_text: JSON.stringify({ decision, comment: body.comment ?? '' }),\n  },\n}];"
+      },
+      "id": "924ec309-99c7-4fb8-a734-c37e86846031",
+      "name": "Parse Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "outbound_messages",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.status }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2224,
+        336
+      ],
+      "id": "e9098b2f-d4a3-42db-a5c5-05787e560333",
+      "name": "Update Draft Status",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "resolution_events",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_id",
+              "fieldValue": "={{ $json.email_id }}"
+            },
+            {
+              "fieldId": "event_type",
+              "fieldValue": "={{ $json.event_type }}"
+            },
+            {
+              "fieldId": "actor_type",
+              "fieldValue": "={{ $json.actor_type }}"
+            },
+            {
+              "fieldId": "actor_id",
+              "fieldValue": "={{ $json.actor_id }}"
+            },
+            {
+              "fieldId": "details_json",
+              "fieldValue": "={{ $json.details_json_text }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2448,
+        336
+      ],
+      "id": "6cd06105-8c3c-47db-9bab-d8bd6bd4d159",
+      "name": "Log Approval",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "2bfc4dd8-24e4-41be-bbca-fc258780e957",
+                    "leftValue": "={{ $json.approval_decision }}",
+                    "rightValue": "APPROVE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "APPROVE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d7d13535-2173-4ee6-b802-bf0971e7bd3b",
+                    "leftValue": "={{ $json.approval_decision }}",
+                    "rightValue": "REJECT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "REJECT"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2672,
+        336
+      ],
+      "id": "81167cae-1e77-4f1e-9e10-e413a6d0e2f8",
+      "name": "Switch Approval",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {},
+      "id": "ff0afdca-f7cb-4ad4-9e35-ec04655bed98",
+      "name": "Correction Rejected",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2896,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const approved = $('Parse Approval').item.json;\nreturn [{\n  json: {\n    ...approved,\n    status: 'SENT',\n    email_status: 'CORRECTION_REQUESTED',\n    comparison_status: 'CORRECTION_REQUESTED',\n    reprocess_webhook_url: $execution.resumeUrl ?? '',\n    event_type: 'CORRECTION_REQUESTED',\n    actor_type: 'system',\n    details_json_text: JSON.stringify({\n      to: approved.to_address,\n      subject: approved.subject,\n      exported: true,\n    }),\n  },\n}];"
+      },
+      "id": "61ec9a51-797d-401b-909f-454788ba93f3",
+      "name": "Mark Sent Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2896,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "outbound_messages",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.status }}"
+            },
+            {
+              "fieldId": "reprocess_webhook_url",
+              "fieldValue": "={{ $json.reprocess_webhook_url }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3120,
+        144
+      ],
+      "id": "8460532d-f445-4d84-9907-293bdbad657f",
+      "name": "Mark Message Sent",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "emails",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.email_status }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3120,
+        336
+      ],
+      "id": "78ecc043-42b9-4f66-9933-38e47f24f196",
+      "name": "Mark Email Correction Requested",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "comparisons",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.comparison_status }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3120,
+        528
+      ],
+      "id": "df758727-0bbd-4280-81ef-d5f9b64631c1",
+      "name": "Mark Comparison Correction Requested",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "resolution_events",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_id",
+              "fieldValue": "={{ $json.email_id }}"
+            },
+            {
+              "fieldId": "event_type",
+              "fieldValue": "={{ $json.event_type }}"
+            },
+            {
+              "fieldId": "actor_type",
+              "fieldValue": "={{ $json.actor_type }}"
+            },
+            {
+              "fieldId": "details_json",
+              "fieldValue": "={{ $json.details_json_text }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3344,
+        336
+      ],
+      "id": "b0327c73-6e3e-4582-bbb1-34c2eb680f43",
+      "name": "Log Correction Requested",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "POST",
+        "limitWaitTime": true,
+        "resumeAmount": 14,
+        "resumeUnit": "days",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3568,
+        336
+      ],
+      "id": "1417587d-5b93-4131-9e7a-625071ddf524",
+      "name": "Wait for New Document",
+      "webhookId": "ef72fdf5-d34e-4248-b2cd-fd5a9841df0c"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sent = $('Mark Sent Payload').item.json;\nconst body = $json ?? {};\nconst replacement = String(\n  body.replacement_email_id ?? body.email_id ?? sent.email_id ?? ''\n).trim();\nif (!/^email_\\d{3}$/.test(replacement)) {\n  throw new Error('POST JSON with replacement_email_id such as email_052');\n}\nreturn [{\n  json: {\n    ...sent,\n    replacement_email_id: replacement,\n    email_id: replacement,\n    original_email_id: sent.email_id,\n    email_status: 'RECHECKING',\n    event_type: 'UPDATED_DOCUMENT_RECEIVED',\n    actor_type: 'system',\n    details_json_text: JSON.stringify({\n      original_email_id: sent.email_id,\n      replacement_email_id: replacement,\n    }),\n  },\n}];"
+      },
+      "id": "69e1bb99-51c2-4748-a169-22c14abe3991",
+      "name": "Parse New Document",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3792,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "outbound_messages",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.original_email_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "replacement_email_id",
+              "fieldValue": "={{ $json.replacement_email_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        4016,
+        256
+      ],
+      "id": "26599c5e-e283-4635-a92e-ffaac9ba1966",
+      "name": "Save Replacement Email",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "resolution_events",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_id",
+              "fieldValue": "={{ $json.original_email_id }}"
+            },
+            {
+              "fieldId": "event_type",
+              "fieldValue": "={{ $json.event_type }}"
+            },
+            {
+              "fieldId": "actor_type",
+              "fieldValue": "={{ $json.actor_type }}"
+            },
+            {
+              "fieldId": "details_json",
+              "fieldValue": "={{ $json.details_json_text }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        4016,
+        480
+      ],
+      "id": "0a15e0db-f3c9-4104-98fe-d324f7833c6c",
+      "name": "Log Updated Document",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "Workflow_BL.C_FX",
+          "cachedResultUrl": "/workflow/CpJHEo32TktThq2V",
+          "mode": "list",
+          "value": "CpJHEo32TktThq2V"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4240,
+        336
+      ],
+      "name": "Reprocess Workflow C",
+      "id": "4b7d93e4-0efd-46bf-9411-11817d787ab8"
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming = $('Parse New Document').item.json;\nconst result = $json ?? {};\nconst status = String(result.status ?? '').toUpperCase();\nconst resolved = status === 'OK';\nconst needsReview = status === 'NEEDS_REVIEW';\nconst mismatch = status === 'MISMATCH' || status === 'MISMATCH_FOUND';\nconst next = resolved ? 'RESOLVED' : (needsReview ? 'REVIEW' : 'MISMATCH');\nreturn [{\n  json: {\n    ...incoming,\n    email_id: incoming.original_email_id,\n    replacement_email_id: incoming.replacement_email_id,\n    recheck_status: status || 'UNKNOWN',\n    next,\n    email_status: resolved ? 'RESOLVED' : (needsReview ? 'NEEDS_REVIEW' : 'MISMATCH_FOUND'),\n    comparison_status: resolved ? 'OK' : (needsReview ? 'NEEDS_REVIEW' : 'MISMATCH'),\n    event_type: resolved ? 'RESOLVED' : (needsReview ? 'NEEDS_REVIEW' : 'MISMATCH_FOUND'),\n    details_json_text: JSON.stringify({\n      original_email_id: incoming.original_email_id,\n      replacement_email_id: incoming.replacement_email_id,\n      recheck_status: status,\n    }),\n  },\n}];"
+      },
+      "id": "f666cf75-c8fa-4d31-b078-42491006f604",
+      "name": "Interpret Recheck",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4464,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "emails",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "email_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.email_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "={{ $json.email_status }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        4688,
+        256
+      ],
+      "id": "c95ad921-b3a9-4152-9078-c21058d0179a",
+      "name": "Update Original Email After Recheck",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "resolution_events",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "email_id",
+              "fieldValue": "={{ $json.email_id }}"
+            },
+            {
+              "fieldId": "event_type",
+              "fieldValue": "={{ $json.event_type }}"
+            },
+            {
+              "fieldId": "actor_type",
+              "fieldValue": "system"
+            },
+            {
+              "fieldId": "details_json",
+              "fieldValue": "={{ $json.details_json_text }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        4688,
+        480
+      ],
+      "id": "cfb6718b-026d-40f6-b502-e25cc8812b6e",
+      "name": "Log Recheck Result",
+      "credentials": {
+        "supabaseApi": {
+          "id": "G3xRFJepVtxXoG3T",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a3a566d9-1f09-48a7-a380-75acbf6bc2bd",
+                    "leftValue": "={{ $json.next }}",
+                    "rightValue": "RESOLVED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "RESOLVED"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "88a8e1ed-e772-465f-85df-1ebec2db6040",
+                    "leftValue": "={{ $json.next }}",
+                    "rightValue": "REVIEW",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "REVIEW"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "af981f39-fe96-4e72-a01e-484b0e8e26aa",
+                    "leftValue": "={{ $json.next }}",
+                    "rightValue": "MISMATCH",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "MISMATCH"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        4912,
+        336
+      ],
+      "id": "e46501b0-ab3a-4dce-929c-3390a6de6ec8",
+      "name": "Switch Recheck",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {},
+      "id": "613faf75-b538-4b33-a01d-4549cfd4dcdc",
+      "name": "Resolved",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        5136,
+        144
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "6bfa3057-fd62-487c-9cc6-99d3da70509b",
+      "name": "Still Mismatch",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        5136,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "Workflow_D_FX",
+          "cachedResultUrl": "/workflow/tDnE2MIZarnECH4l",
+          "mode": "list",
+          "value": "tDnE2MIZarnECH4l"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5120,
+        352
+      ],
+      "name": "Create Another Review Case",
+      "id": "40c00be5-3dd2-4644-8ff0-cd7aaee2aa55"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Get Comparison",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Comparison": {
+      "main": [
+        [
+          {
+            "node": "Get Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Email": {
+      "main": [
+        [
+          {
+            "node": "Build Draft Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Draft Request": {
+      "main": [
+        [
+          {
+            "node": "Groq Draft Correction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Draft Correction": {
+      "main": [
+        [
+          {
+            "node": "Validate Draft JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Draft JSON": {
+      "main": [
+        [
+          {
+            "node": "Save Draft Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Draft Message": {
+      "main": [
+        [
+          {
+            "node": "Log Draft Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Draft Created": {
+      "main": [
+        [
+          {
+            "node": "Wait for Human Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Human Approval": {
+      "main": [
+        [
+          {
+            "node": "Parse Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Approval": {
+      "main": [
+        [
+          {
+            "node": "Update Draft Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Draft Status": {
+      "main": [
+        [
+          {
+            "node": "Log Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Approval": {
+      "main": [
+        [
+          {
+            "node": "Switch Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Approval": {
+      "main": [
+        [
+          {
+            "node": "Mark Sent Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Correction Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Correction Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Sent Payload": {
+      "main": [
+        [
+          {
+            "node": "Mark Message Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Message Sent": {
+      "main": [
+        [
+          {
+            "node": "Mark Email Correction Requested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Email Correction Requested": {
+      "main": [
+        [
+          {
+            "node": "Mark Comparison Correction Requested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Comparison Correction Requested": {
+      "main": [
+        [
+          {
+            "node": "Log Correction Requested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Correction Requested": {
+      "main": [
+        [
+          {
+            "node": "Wait for New Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for New Document": {
+      "main": [
+        [
+          {
+            "node": "Parse New Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse New Document": {
+      "main": [
+        [
+          {
+            "node": "Save Replacement Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Replacement Email": {
+      "main": [
+        [
+          {
+            "node": "Log Updated Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Updated Document": {
+      "main": [
+        [
+          {
+            "node": "Reprocess Workflow C",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reprocess Workflow C": {
+      "main": [
+        [
+          {
+            "node": "Interpret Recheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpret Recheck": {
+      "main": [
+        [
+          {
+            "node": "Update Original Email After Recheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Original Email After Recheck": {
+      "main": [
+        [
+          {
+            "node": "Log Recheck Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Recheck Result": {
+      "main": [
+        [
+          {
+            "node": "Switch Recheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Recheck": {
+      "main": [
+        [
+          {
+            "node": "Resolved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Another Review Case",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Still Mismatch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Still Mismatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "e5f5bae0-6eb0-4523-88db-d16e74b1bd24",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "926164ef32f690c528f5607e0d940c8edb18dc4a2a0051a00bb69b796a890562"
+  },
+  "nodeGroups": [],
+  "id": "KovXcPBCFadfT6tp",
+  "tags": []
+}

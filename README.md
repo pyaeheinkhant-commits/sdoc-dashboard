@@ -45,10 +45,16 @@ n8n handles interpretation and orchestration. Deterministic code handles normali
 │   ├── css/styles.css                  # Dashboard styling
 │   └── js/app.js                       # Supabase requests and n8n webhook controls
 ├── .github/workflows/deploy-pages.yml # GitHub Pages deployment workflow
+├── n8n/
+│   ├── README.md                        # n8n import and configuration guide
+│   ├── workflows/                       # Sanitized n8n workflow exports
+│   └── supabase/                        # Supabase review/resolution SQL
 └── .nojekyll                          # Serves static assets without Jekyll processing
 ```
 
-The n8n workflow exports and Supabase setup SQL are maintained in the main SDOC project workspace:
+## n8n Workflows
+
+The `n8n` folder contains sanitized exports and setup SQL:
 
 ```text
 n8n/workflows/
@@ -57,6 +63,8 @@ n8n/workflows/
 ├── Workflow_D_FX (1).json       # Human review
 └── Workflow_E_FX (1).json       # Resolution follow-up
 ```
+
+See [n8n/README.md](n8n/README.md) for import steps, required variables, and credential setup.
 
 ## Run Locally
 

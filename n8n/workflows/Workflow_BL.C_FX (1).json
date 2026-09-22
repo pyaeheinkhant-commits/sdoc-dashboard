@@ -1,0 +1,1163 @@
+{
+  "name": "Workflow_BL.C_FX",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const emailId = String($input.first().json['Email ID'] ?? $input.first().json.email_id ?? '').trim();\nif (!/^email_\\d{3}$/.test(emailId)) throw new Error('Enter an email ID such as email_004');\nreturn [{ json: { email_id: emailId } }];"
+      },
+      "id": "98ffa655-5bf4-404a-88fe-080f83abd05d",
+      "name": "Validate email_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1136,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://dubai-eco-weeks-talked.trycloudflare.com/emails/' + $json.email_id }}",
+        "options": {}
+      },
+      "id": "b4965135-2772-4212-8181-564442227112",
+      "name": "Fetch Email from Docker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -912,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const files = Array.isArray($json.attachments) ? $json.attachments : [];\n\nconst supported = /\\.(txt|xlsx|docx|pdf)$/i;\n\nconst siPath = files.find(\n  (path) => /(?:^|[_-])SI\\.(txt|xlsx|docx|pdf)$/i.test(String(path))\n);\n\nconst blPath = files.find(\n  (path) => /(?:^|[_-])BL\\.(txt|xlsx|docx|pdf)$/i.test(String(path))\n);\n\nif (!siPath || !blPath) {\n  throw new Error(\n    `Missing SI or BL. Attachments found: ${files.join(', ')}`\n  );\n}\n\nconst getType = (path) =>\n  String(path).split('.').pop().toLowerCase();\n\nreturn [\n  {\n    json: {\n      ...$json,\n      si_path: siPath,\n      bl_path: blPath,\n      si_type: getType(siPath),\n      bl_type: getType(blPath),\n    },\n  },\n];"
+      },
+      "id": "5fd4898f-50eb-416b-9c83-fd868fdadec6",
+      "name": "Find SI and BL Attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -688,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://dubai-eco-weeks-talked.trycloudflare.com/' + $json.si_path }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "054fdac8-0f01-4118-b158-c87f0320891c",
+      "name": "Fetch SI Attachment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -464,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://dubai-eco-weeks-talked.trycloudflare.com/' + $('Find SI and BL Attachments').first().json.bl_path }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "baa9b5dd-0310-4f69-aa93-868667a28103",
+      "name": "Fetch BL Attachment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -464,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $items('Build Comparison Request')[0].json;\nconst raw = ($json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('\\n');\nconst match = raw.match(/\\{[\\s\\S]*\\}/);\nlet result = {};\ntry { result = match ? JSON.parse(match[0]) : {}; } catch {}\nconst fields = new Set(['shipper','consignee','notify_party','port_of_loading','port_of_discharge','container_count','gross_weight_kg']);\nconst statuses = new Set(['OK','MISMATCH','NEEDS_REVIEW']);\nconst status = statuses.has(result.status) ? result.status : 'NEEDS_REVIEW';\nconst defectFields = Array.isArray(result.defect_fields) ? result.defect_fields.filter((f) => fields.has(f)) : [];\nconst reasons = new Set(['wrong_doc_type','missing_attachment','unreadable','missing_value']);\nconst reviewReason = status === 'NEEDS_REVIEW' ? (reasons.has(result.review_reason) ? result.review_reason : 'unreadable') : null;\nreturn [{ json: { email_id: source.email_id, sender: source.sender, subject: source.subject, category: 'BL_COMPARISON', status, review_reason: reviewReason, has_defect: status === 'MISMATCH', defect_fields: status === 'MISMATCH' ? defectFields : [], comparison_summary: String(result.comparison_summary ?? ''), processed_at: new Date().toISOString() } }];"
+      },
+      "id": "5928dd24-f948-4176-9f14-1e6c601f3e7f",
+      "name": "Validate Comparison JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://pynjffwqaxubfroithak.supabase.co/rest/v1/comparisons",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer ={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=representation"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ email_id: $json.email_id, sender: $json.sender, subject: $json.subject, category: $json.category, status: $json.status, review_reason: $json.review_reason, has_defect: $json.has_defect, defect_fields: $json.defect_fields }) }}",
+        "options": {}
+      },
+      "id": "c7172f64-e44e-4dfa-acc6-29211ba4923e",
+      "name": "Save Comparison to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1776,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  model: \"openai/gpt-oss-20b\",\n  messages: [\n    {\n      role: \"user\",\n      content: $json.gemini_body.contents[0].parts[0].text\n    }\n  ],\n  temperature: 0.1,\n  reasoning_format: \"hidden\",\n  response_format: {\n    type: \"json_object\"\n  }\n} }}",
+        "options": {}
+      },
+      "id": "7648f73c-6968-423c-a5f7-3f81da2a9d41",
+      "name": "Groq Compare SI and BL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1328,
+        608
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "Qea8plC3oy2vtLd9",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $json;\n\nif (!email.si_text || !email.bl_text) {\n  throw new Error('SI or BL extracted text is missing');\n}\n\nconst prompt = `You are a shipping-document verification system.\n\nCompare these seven fields between the Shipping Instruction and draft Bill of Lading:\nshipper, consignee, notify_party, port_of_loading, port_of_discharge, container_count, gross_weight_kg.\n\nReturn exactly one JSON object:\n{\n  \"category\": \"BL_COMPARISON\",\n  \"status\": \"OK\",\n  \"review_reason\": null,\n  \"has_defect\": false,\n  \"defect_fields\": [],\n  \"comparison_summary\": \"short explanation\"\n}\n\nRules:\n- OK: all seven fields match.\n- MISMATCH: one or more fields differ. List only differing fields.\n- NEEDS_REVIEW: unreadable, wrong document type, missing attachment, or missing value.\n- For NEEDS_REVIEW, review_reason must be one of:\n  wrong_doc_type, missing_attachment, unreadable, missing_value.\n\nSI DOCUMENT:\n${email.si_text}\n\nBL DOCUMENT:\n${email.bl_text}`;\n\nreturn [\n  {\n    json: {\n      ...email,\n      gemini_body: {\n        contents: [\n          {\n            role: 'user',\n            parts: [{ text: prompt }],\n          },\n        ],\n      },\n    },\n  },\n];"
+      },
+      "id": "900b5408-a9cc-4cc2-b614-61a7bd823140",
+      "name": "Build Comparison Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                    "rightValue": "txt",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "eb363bc6-88b4-4c42-a666-65e61b236783"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "txt"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "66caf491-d571-4abb-933f-814ef4d55a81",
+                    "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                    "rightValue": "xlsx",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "xlsx"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "47182236-7528-4118-b7f7-d2ddc0ae47f2",
+                    "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                    "rightValue": "docx",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "docx"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "9bcdf807-f6d8-42ae-97e6-34aac16c9f15",
+                    "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                    "rightValue": "pdf",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pdf"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -240,
+        128
+      ],
+      "id": "d10afe12-40e8-4386-8ad1-8ef98755d88b",
+      "name": "SI switch",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a795fac7-300b-454c-8c81-d0f17b10b481",
+                    "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                    "rightValue": "txt",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "txt"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "66caf491-d571-4abb-933f-814ef4d55a81",
+                    "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                    "rightValue": "xlsx",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "xlsx"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "47182236-7528-4118-b7f7-d2ddc0ae47f2",
+                    "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                    "rightValue": "docx",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "docx"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "9bcdf807-f6d8-42ae-97e6-34aac16c9f15",
+                    "leftValue": "={{ $binary.data.fileExtension.toLowerCase() }}",
+                    "rightValue": "pdf",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pdf"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -240,
+        896
+      ],
+      "id": "22c83c1c-8a32-4934-9128-f5fda8709940",
+      "name": "BL switch"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Find SI and BL Attachments').item.json;\n\nconst siText = $input.all()\n  .map((item) => {\n    const value = item.json.text ?? item.json.data ?? item.json;\n    return typeof value === 'string' ? value : JSON.stringify(value);\n  })\n  .join('\\n');\n\nreturn [{ json: { ...base, si_text: siText } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        48
+      ],
+      "id": "5c88767d-b936-4862-aa3a-8c1a14663b1b",
+      "name": "Combine SI Excel Text"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Find SI and BL Attachments').item.json;\n\nconst rows = $input.all().map((item) => item.json);\n\nconst blText = rows\n  .map((row) =>\n    Object.entries(row)\n      .map(([key, value]) => `${key}: ${value}`)\n      .join(' | ')\n  )\n  .join('\\n');\n\nreturn [\n  {\n    json: {\n      ...base,\n      bl_text: blText,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        816
+      ],
+      "id": "d2523f62-963e-4c52-afc8-a8067d81c343",
+      "name": "Combine BL Excel Text"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        656,
+        608
+      ],
+      "id": "139a4709-a792-46cc-b97f-c7f80f63edb6",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Find SI and BL Attachments').item.json;\n\nconst siText = $input.all()\n  .map((item) => {\n    const value = item.json.text ?? item.json.data ?? item.json;\n    return typeof value === 'string' ? value : JSON.stringify(value);\n  })\n  .join('\\n');\n\nreturn [{ json: { ...base, si_text: siText } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        -144
+      ],
+      "id": "bae23b4f-f0e9-4eb7-a28a-58984adeafd8",
+      "name": "Normalize SI TXT"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Find SI and BL Attachments').item.json;\n\nconst siText = $input.all()\n  .map((item) => {\n    const value = item.json.text ?? item.json.data ?? item.json;\n    return typeof value === 'string' ? value : JSON.stringify(value);\n  })\n  .join('\\n');\n\nreturn [{ json: { ...base, si_text: siText } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        240
+      ],
+      "id": "38148764-5a73-4008-b8ed-d4979073aec4",
+      "name": "Normalize SI PDF"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "destinationKey": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        -144
+      ],
+      "id": "6e07181a-fc84-4b8a-90dd-4203d0896594",
+      "name": "Extract from txt file"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        48
+      ],
+      "id": "da791897-5c4e-4545-89a5-8ed3510dabaf",
+      "name": "Extract from excel"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        240
+      ],
+      "id": "6eb989cc-9cf7-4553-a475-f11a61579fba",
+      "name": "Extract from pdf"
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        816
+      ],
+      "id": "4c327755-6b01-4c10-a6ba-3b92a8834115",
+      "name": "Extract from excel1"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "destinationKey": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        624
+      ],
+      "id": "ba652d01-7763-4a63-a641-d468b0b92118",
+      "name": "Extract from txt file1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Find SI and BL Attachments').item.json;\n\nconst blText = $input.all()\n  .map((item) => {\n    const value = item.json.text ?? item.json.data ?? item.json;\n    return typeof value === 'string' ? value : JSON.stringify(value);\n  })\n  .join('\\n');\n\nreturn [{ json: { ...base, bl_text: blText } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        624
+      ],
+      "id": "600591be-885c-4375-a902-d86018291925",
+      "name": "Normalize BL TXT"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        1200
+      ],
+      "id": "05bb947d-b4f5-48c6-a71d-2bfe3f66e23e",
+      "name": "Extract from pdf1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Find SI and BL Attachments').item.json;\n\nconst blText = $input.all()\n  .map((item) => {\n    const value = item.json.text ?? item.json.data ?? item.json;\n    return typeof value === 'string' ? value : JSON.stringify(value);\n  })\n  .join('\\n');\n\nreturn [{ json: { ...base, bl_text: blText } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        1200
+      ],
+      "id": "9beb4cba-9eef-4ae0-ad37-acbb5a7caf9e",
+      "name": "Normalize BL PDF"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://v2.convertapi.com/convert/docx/to/txt",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "Secret",
+              "value": "={{ $env.CONVERTAPI_SECRET }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "File",
+              "value": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -16,
+        432
+      ],
+      "id": "f5c2da30-fe95-45fd-b79e-dae0df8ce573",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://v2.convertapi.com/convert/docx/to/txt",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "Secret",
+              "value": "={{ $env.CONVERTAPI_SECRET }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "File",
+              "value": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -16,
+        1008
+      ],
+      "id": "f6def78e-d467-4ec1-b811-cdafed6f7b83",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "destinationKey": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        1008
+      ],
+      "id": "61cfabf9-ab19-49af-9f37-ca94f51d0388",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Find SI and BL Attachments').item.json;\n\nconst blText = $input.all()\n  .map((item) => String(item.json.text ?? item.json.data ?? ''))\n  .join('\\n');\n\nreturn [{ json: { ...base, bl_text: blText } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        1008
+      ],
+      "id": "4bd526da-643a-420b-9b4b-a1340994a24e",
+      "name": "Normalize BL DOCX"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        432
+      ],
+      "id": "dfb8364a-595b-41ea-b3a5-83b4a4af5cdb",
+      "name": "Extract from File1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Find SI and BL Attachments').item.json;\n\nconst siText = $input.all()\n  .map((item) => String(item.json.text ?? item.json.data ?? ''))\n  .join('\\n');\n\nreturn [{ json: { ...base, si_text: siText } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        432
+      ],
+      "id": "809fe1f4-ba00-45b0-a893-d76824da985d",
+      "name": "Normalize SI DOCX"
+    },
+    {
+      "parameters": {
+        "amount": 60
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1104,
+        608
+      ],
+      "id": "6b1036d6-f3ed-4425-8732-f927429a08e4",
+      "name": "Wait2",
+      "webhookId": "a185cbf0-5291-4121-a283-95c47b07db50"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "4908ac5b-ec81-42fb-b05d-aa4c20b2523b",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        -1344,
+        528
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Validate email_id": {
+      "main": [
+        [
+          {
+            "node": "Fetch Email from Docker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Email from Docker": {
+      "main": [
+        [
+          {
+            "node": "Find SI and BL Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find SI and BL Attachments": {
+      "main": [
+        [
+          {
+            "node": "Fetch SI Attachment",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch BL Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch SI Attachment": {
+      "main": [
+        [
+          {
+            "node": "SI switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch BL Attachment": {
+      "main": [
+        [
+          {
+            "node": "BL switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Comparison JSON": {
+      "main": [
+        [
+          {
+            "node": "Save Comparison to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Compare SI and BL": {
+      "main": [
+        [
+          {
+            "node": "Validate Comparison JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Comparison Request": {
+      "main": [
+        [
+          {
+            "node": "Wait2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SI switch": {
+      "main": [
+        [
+          {
+            "node": "Extract from txt file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract from excel",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract from pdf",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BL switch": {
+      "main": [
+        [
+          {
+            "node": "Extract from txt file1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract from excel1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract from pdf1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine SI Excel Text": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine BL Excel Text": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Build Comparison Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from txt file": {
+      "main": [
+        [
+          {
+            "node": "Normalize SI TXT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from excel": {
+      "main": [
+        [
+          {
+            "node": "Combine SI Excel Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from pdf": {
+      "main": [
+        [
+          {
+            "node": "Normalize SI PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from excel1": {
+      "main": [
+        [
+          {
+            "node": "Combine BL Excel Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from txt file1": {
+      "main": [
+        [
+          {
+            "node": "Normalize BL TXT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from pdf1": {
+      "main": [
+        [
+          {
+            "node": "Normalize BL PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize SI TXT": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Extract from File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize SI PDF": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize BL TXT": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Normalize BL PDF": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Normalize BL DOCX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize BL DOCX": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Extract from File1": {
+      "main": [
+        [
+          {
+            "node": "Normalize SI DOCX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize SI DOCX": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait2": {
+      "main": [
+        [
+          {
+            "node": "Groq Compare SI and BL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Validate email_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "d0266d64-55d4-42ce-803f-fce1f47e717c",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "926164ef32f690c528f5607e0d940c8edb18dc4a2a0051a00bb69b796a890562"
+  },
+  "nodeGroups": [],
+  "id": "CpJHEo32TktThq2V",
+  "tags": []
+}
