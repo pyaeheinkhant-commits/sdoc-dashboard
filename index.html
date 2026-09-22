@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SDOC — Shipping Document Verification</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚢</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0A121D;
+    --panel:#101B2B;
+    --panel-2:#0D1826;
+    --border:#1E2E45;
+    --border-soft:#182742;
+    --text:#E9EFF6;
+    --text-dim:#8CA0B8;
+    --text-faint:#5E7188;
+    --accent:#4F9DDE;
+    --accent-dim:#2E5C81;
+    --ok:#3ECF8E;
+    --ok-dim:#163C2C;
+    --review:#F2B33D;
+    --review-dim:#3D3213;
+    --mismatch:#F1583D;
+    --mismatch-dim:#3E1A11;
+    --radius:10px;
+    --mono:'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --head:'Space Grotesk', var(--sans);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--ink);color:var(--text);font-family:var(--sans);}
+  body{min-height:100vh;padding:28px 28px 60px;}
+  ::selection{background:var(--accent-dim);color:#fff;}
+
+  a{color:var(--accent);}
+
+  .wrap{max-width:1280px;margin:0 auto;}
+
+  /* Header */
+  header.top{
+    display:flex;align-items:flex-end;justify-content:space-between;
+    gap:20px;flex-wrap:wrap;
+    padding-bottom:22px;border-bottom:1px solid var(--border);margin-bottom:24px;
+  }
+  .brand{display:flex;flex-direction:column;gap:4px;}
+  .brand .kicker{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;color:var(--text-faint);
+  }
+  .brand h1{
+    font-family:var(--head);font-weight:700;font-size:28px;margin:0;letter-spacing:-.01em;
+    display:flex;align-items:center;gap:12px;
+  }
+  .brand p{margin:2px 0 0;color:var(--text-dim);font-size:13.5px;max-width:560px;line-height:1.5;}
+  .status-cluster{display:flex;align-items:center;gap:14px;}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-dim);flex:none;}
+  .live-dot.off{background:var(--mismatch);box-shadow:0 0 0 3px var(--mismatch-dim);}
+  .live-label{font-family:var(--mono);font-size:12px;color:var(--text-dim);}
+  .btn{
+    font-family:var(--sans);font-weight:600;font-size:13px;color:var(--text);
+    background:var(--panel);border:1px solid var(--border);border-radius:8px;
+    padding:9px 14px;cursor:pointer;transition:border-color .15s, background .15s;
+  }
+  .btn:hover{border-color:var(--accent);background:#122036;}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#051220;}
+  .btn.primary:hover{background:#67AEE6;}
+  .btn.small{padding:6px 10px;font-size:12px;border-radius:6px;}
+  .btn:disabled{opacity:.45;cursor:default;}
+
+  /* KPI strip */
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:26px;}
+  .kpi{
+    background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:16px 16px 14px;
+  }
+  .kpi .num{font-family:var(--head);font-size:30px;font-weight:700;line-height:1;}
+  .kpi .lbl{font-size:12px;color:var(--text-dim);margin-top:8px;}
+  .kpi.mismatch .num{color:var(--mismatch);}
+  .kpi.review .num{color:var(--review);}
+  .kpi.ok .num{color:var(--ok);}
+  .kpi.pending .num{color:var(--accent);}
+
+  /* Layout */
+  .grid{display:grid;grid-template-columns:1fr 360px;gap:20px;align-items:start;}
+  @media (max-width:980px){.grid{grid-template-columns:1fr;} .kpis{grid-template-columns:repeat(2,1fr);}}
+
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+  .panel-head{
+    padding:16px 18px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  }
+  .panel-head h2{font-family:var(--head);font-size:15.5px;margin:0;font-weight:600;}
+  .panel-head .sub{font-size:12px;color:var(--text-faint);margin-top:2px;}
+
+  .tabs{display:flex;gap:6px;}
+  .tab{
+    font-family:var(--mono);font-size:11.5px;padding:6px 10px;border-radius:6px;
+    border:1px solid transparent;color:var(--text-dim);cursor:pointer;background:transparent;
+  }
+  .tab.active{background:var(--panel-2);border-color:var(--border);color:var(--text);}
+  .tab .n{color:var(--text-faint);}
+  .tab.active .n{color:inherit;}
+
+  /* Ledger table */
+  table{width:100%;border-collapse:collapse;}
+  thead th{
+    text-align:left;font-size:11px;color:var(--text-faint);font-weight:500;
+    padding:10px 18px;border-bottom:1px solid var(--border);letter-spacing:.02em;
+  }
+  tbody tr{border-bottom:1px solid var(--border-soft, var(--border));cursor:pointer;}
+  tbody tr:hover{background:var(--panel-2);}
+  tbody td{padding:12px 18px;font-size:13px;vertical-align:top;}
+  .eid{font-family:var(--mono);font-size:12.5px;color:var(--text-dim);}
+  .subj{color:var(--text);font-size:13px;max-width:340px;display:block;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .sender{color:var(--text-faint);font-size:11.5px;margin-top:2px;}
+  .badge{
+    display:inline-block;font-family:var(--mono);font-size:10.5px;letter-spacing:.03em;
+    padding:3px 8px;border-radius:20px;font-weight:500;
+  }
+  .badge.MISMATCH{background:var(--mismatch-dim);color:var(--mismatch);}
+  .badge.NEEDS_REVIEW{background:var(--review-dim);color:var(--review);}
+  .badge.OK{background:var(--ok-dim);color:var(--ok);}
+  .cat{font-size:11.5px;color:var(--text-dim);}
+  .fields{display:flex;flex-wrap:wrap;gap:5px;max-width:260px;}
+  .field-tag{
+    font-family:var(--mono);font-size:10.5px;color:var(--mismatch);
+    background:var(--mismatch-dim);padding:2px 7px;border-radius:5px;
+  }
+  .none{color:var(--text-faint);font-size:12px;}
+
+  .empty, .loading, .err{padding:40px 20px;text-align:center;color:var(--text-faint);font-size:13px;}
+  .err{color:var(--mismatch);}
+
+  /* Pending actions panel */
+  .queue{display:flex;flex-direction:column;}
+  .qcard{padding:16px 18px;border-bottom:1px solid var(--border-soft, var(--border));}
+  .qcard:last-child{border-bottom:none;}
+  .qcard .qtype{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;color:var(--text-faint);
+    text-transform:uppercase;margin-bottom:6px;
+  }
+  .qcard .qtitle{font-size:13px;font-weight:600;margin-bottom:3px;}
+  .qcard .qmeta{font-size:11.5px;color:var(--text-dim);margin-bottom:10px;line-height:1.5;}
+  .qcard .qactions{display:flex;gap:8px;flex-wrap:wrap;}
+  .qcard .qresult{margin-top:8px;font-family:var(--mono);font-size:11px;padding:8px 10px;border-radius:6px;background:var(--panel-2);color:var(--text-dim);display:none;}
+  .qcard .qresult.show{display:block;}
+  .qcard .qresult.success{color:var(--ok);}
+  .qcard .qresult.failure{color:var(--mismatch);}
+
+  /* Detail drawer */
+  .drawer-backdrop{
+    position:fixed;inset:0;background:rgba(4,8,14,.6);display:none;z-index:40;
+    align-items:flex-start;justify-content:flex-end;
+  }
+  .drawer-backdrop.open{display:flex;}
+  .drawer{
+    width:min(440px, 92vw);height:100%;background:var(--panel);border-left:1px solid var(--border);
+    padding:22px 24px;overflow-y:auto;
+  }
+  .drawer h3{font-family:var(--head);font-size:18px;margin:0 0 4px;}
+  .drawer .drawer-sub{color:var(--text-faint);font-size:12px;margin-bottom:18px;}
+  .drawer dl{margin:0;}
+  .drawer dt{font-size:11px;color:var(--text-faint);margin-top:14px;letter-spacing:.03em;}
+  .drawer dd{margin:4px 0 0;font-size:13.5px;color:var(--text);}
+  .drawer .close{
+    position:absolute;top:18px;right:18px;background:none;border:none;color:var(--text-dim);
+    font-size:20px;cursor:pointer;line-height:1;
+  }
+  .drawer{position:relative;}
+
+  footer{margin-top:28px;color:var(--text-faint);font-size:11.5px;font-family:var(--mono);text-align:center;}
+  footer a{color:var(--text-faint);text-decoration:underline;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <div class="kicker">AUTOPILOT ASIA HACKATHON 2026 · TRACK 2 · AI EMPLOYEE ON SUPERVITY</div>
+      <h1>🚢 SDOC <span style="color:var(--text-faint);font-weight:500;font-size:18px;">Shipping Document Verification</span></h1>
+      <p>Reads shipping-ops email, classifies it, and checks the Shipping Instruction against the draft Bill of Lading for discrepancies across shipper, consignee, notify party, ports, containers and weight — flagging anything that needs a human before it goes out.</p>
+    </div>
+    <div class="status-cluster">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="live-dot" id="liveDot"></span>
+        <span class="live-label" id="liveLabel">Connecting to Supabase…</span>
+      </div>
+      <button class="btn" id="refreshBtn">↻ Refresh</button>
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis">
+    <div class="kpi"><div class="num" id="kpiTotal">–</div><div class="lbl">Emails processed</div></div>
+    <div class="kpi mismatch"><div class="num" id="kpiMismatch">–</div><div class="lbl">Mismatch — needs correction</div></div>
+    <div class="kpi review"><div class="num" id="kpiReview">–</div><div class="lbl">Needs human review</div></div>
+    <div class="kpi ok"><div class="num" id="kpiOk">–</div><div class="lbl">Clean match</div></div>
+    <div class="kpi pending"><div class="num" id="kpiPending">–</div><div class="lbl">Awaiting your action</div></div>
+  </section>
+
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Comparison ledger</h2>
+          <div class="sub">SI vs. draft BL, one row per checked email</div>
+        </div>
+        <div class="tabs" id="tabs">
+          <button class="tab active" data-filter="ALL">All <span class="n" id="cntAll"></span></button>
+          <button class="tab" data-filter="MISMATCH">Mismatch <span class="n" id="cntMismatch"></span></button>
+          <button class="tab" data-filter="NEEDS_REVIEW">Review <span class="n" id="cntReview"></span></button>
+          <button class="tab" data-filter="OK">OK <span class="n" id="cntOk"></span></button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:90px;">Email</th>
+              <th>Subject</th>
+              <th style="width:110px;">Category</th>
+              <th style="width:120px;">Result</th>
+              <th style="width:220px;">Defect fields</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerBody">
+            <tr><td colspan="5" class="loading">Loading comparisons…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Run a check</h2>
+          <div class="sub">Kicks off Workflow_BL.C_FX for one email, live</div>
+        </div>
+      </div>
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;gap:8px;">
+        <input type="text" id="runEmailId" placeholder="email_050" style="flex:1;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:12.5px;padding:8px 10px;">
+        <button class="btn primary small" id="runBtn">Run</button>
+      </div>
+      <div id="runResult" style="padding:0 18px;font-family:var(--mono);font-size:11px;color:var(--text-dim);display:none;"></div>
+
+      <div class="panel-head">
+        <div>
+          <h2>Pending actions</h2>
+          <div class="sub">Paused n8n runs waiting on you</div>
+        </div>
+      </div>
+      <div class="queue" id="queue">
+        <div class="loading">Loading queue…</div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Live data from Supabase project <strong>sdoc</strong> (read-only anon key, RLS-protected — writes only happen through n8n's resume webhooks). Built as a self-contained file so it works outside the claude.ai sandbox.
+  </footer>
+</div>
+
+<div class="drawer-backdrop" id="drawerBackdrop">
+  <div class="drawer" id="drawer"></div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://pynjffwqaxubfroithak.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5bmpmZndxYXh1YmZyb2l0aGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk5MTc2MjcsImV4cCI6MjEwNTQ5MzYyN30.sBluHcF86hj8CHPHa4tkuCpt2AiZZq6zyvlFOay4Qss";
+
+const headers = {
+  apikey: SUPABASE_ANON_KEY,
+  Authorization: "Bearer " + SUPABASE_ANON_KEY
+};
+
+let comparisons = [];
+let emailsById = {};
+let activeFilter = "ALL";
+
+async function sbGet(path){
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers });
+  if(!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
+  return res.json();
+}
+
+function setLive(ok, label){
+  document.getElementById('liveDot').classList.toggle('off', !ok);
+  document.getElementById('liveLabel').textContent = label;
+}
+
+function fmtField(f){
+  return f.replace(/_/g,' ');
+}
+
+function defectFields(value){
+  if(Array.isArray(value)) return value;
+  if(typeof value !== 'string') return [];
+  try{
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch{
+    return [];
+  }
+}
+
+function renderKpis(){
+  const total = Object.keys(emailsById).length;
+  const mismatch = comparisons.filter(c=>c.status==='MISMATCH').length;
+  const review = comparisons.filter(c=>c.status==='NEEDS_REVIEW').length;
+  const ok = comparisons.filter(c=>c.status==='OK').length;
+  document.getElementById('kpiTotal').textContent = total;
+  document.getElementById('kpiMismatch').textContent = mismatch;
+  document.getElementById('kpiReview').textContent = review;
+  document.getElementById('kpiOk').textContent = ok;
+  document.getElementById('cntAll').textContent = comparisons.length;
+  document.getElementById('cntMismatch').textContent = mismatch;
+  document.getElementById('cntReview').textContent = review;
+  document.getElementById('cntOk').textContent = ok;
+}
+
+function renderLedger(){
+  const body = document.getElementById('ledgerBody');
+  const rows = activeFilter === 'ALL' ? comparisons : comparisons.filter(c=>c.status===activeFilter);
+  if(rows.length === 0){
+    body.innerHTML = `<tr><td colspan="5" class="empty">Nothing in this view yet.</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map(c=>{
+    const email = emailsById[c.email_id] || {};
+    const fields = defectFields(c.defect_fields);
+    const fieldHtml = fields.length
+      ? `<div class="fields">${fields.map(f=>`<span class="field-tag">${fmtField(f)}</span>`).join('')}</div>`
+      : `<span class="none">—</span>`;
+    return `
+      <tr data-eid="${c.email_id}">
+        <td class="eid">${c.email_id}</td>
+        <td>
+          <span class="subj">${escapeHtml(email.subject || c.subject || '(no subject)')}</span>
+          <div class="sender">${escapeHtml(email.sender || c.sender || '')}</div>
+        </td>
+        <td class="cat">${(email.category || c.category || '').replace(/_/g,' ')}</td>
+        <td><span class="badge ${c.status}">${c.status.replace(/_/g,' ')}</span></td>
+        <td>${fieldHtml}</td>
+      </tr>`;
+  }).join('');
+
+  body.querySelectorAll('tr[data-eid]').forEach(tr=>{
+    tr.addEventListener('click', ()=>openDrawer(tr.dataset.eid));
+  });
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function openDrawer(emailId){
+  const c = comparisons.find(x=>x.email_id===emailId);
+  const email = emailsById[emailId] || {};
+  const fields = defectFields(c?.defect_fields);
+  const drawer = document.getElementById('drawer');
+  drawer.innerHTML = `
+    <button class="close" id="drawerClose">×</button>
+    <h3>${emailId}</h3>
+    <div class="drawer-sub">${escapeHtml(email.category || c?.category || '—')}</div>
+    <dl>
+      <dt>Subject</dt><dd>${escapeHtml(email.subject || c?.subject || '—')}</dd>
+      <dt>Sender</dt><dd>${escapeHtml(email.sender || c?.sender || '—')}</dd>
+      <dt>Result</dt><dd><span class="badge ${c?.status||''}">${(c?.status||'—').replace(/_/g,' ')}</span></dd>
+      <dt>Defect fields</dt><dd>${fields.length ? fields.map(fmtField).join(', ') : 'None'}</dd>
+      <dt>Review reason</dt><dd>${escapeHtml(email.review_reason || c?.review_reason || '—')}</dd>
+      <dt>Recommended action</dt><dd>${escapeHtml(c?.recommended_action || '—')}</dd>
+    </dl>
+  `;
+  document.getElementById('drawerBackdrop').classList.add('open');
+  document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+}
+function closeDrawer(){ document.getElementById('drawerBackdrop').classList.remove('open'); }
+document.getElementById('drawerBackdrop').addEventListener('click', e=>{
+  if(e.target.id === 'drawerBackdrop') closeDrawer();
+});
+
+document.getElementById('tabs').addEventListener('click', e=>{
+  const btn = e.target.closest('.tab');
+  if(!btn) return;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  activeFilter = btn.dataset.filter;
+  renderLedger();
+});
+
+async function fireWebhook(url, btn, resultEl, payload){
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = 'Sending…';
+  resultEl.classList.remove('show','success','failure');
+  try{
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload || {})
+    });
+    resultEl.classList.add('show');
+    if(res.ok){
+      resultEl.classList.add('success');
+      resultEl.textContent = `✓ Sent — n8n responded ${res.status}. Resumed workflow.`;
+      btn.textContent = 'Sent ✓';
+    } else {
+      resultEl.classList.add('failure');
+      resultEl.textContent = `✗ n8n responded ${res.status}. Check the workflow execution log.`;
+      btn.textContent = originalLabel;
+      btn.disabled = false;
+    }
+  } catch(err){
+    resultEl.classList.add('show','failure');
+    resultEl.textContent = `✗ Request blocked or failed (${err.message}). This is usually the browser blocking cross-origin calls — if it persists, confirm CORS is open on the n8n webhook, or trigger the resume URL directly.`;
+    btn.textContent = originalLabel;
+    btn.disabled = false;
+  }
+}
+
+function renderQueue(reviewCases, outboundMessages){
+  const queue = document.getElementById('queue');
+  const openReviews = reviewCases.filter(r => (r.status||'').toUpperCase() === 'OPEN');
+  const draftMessages = outboundMessages.filter(m => (m.status||'').toUpperCase() === 'DRAFT');
+  const awaitingDoc = outboundMessages.filter(m => (m.status||'').toUpperCase() === 'SENT' && m.reprocess_webhook_url && !m.replacement_email_id);
+
+  document.getElementById('kpiPending').textContent = openReviews.length + draftMessages.length + awaitingDoc.length;
+
+  if(openReviews.length === 0 && draftMessages.length === 0 && awaitingDoc.length === 0){
+    queue.innerHTML = `<div class="empty">Nothing waiting on you right now.</div>`;
+    return;
+  }
+
+  let html = '';
+
+  openReviews.forEach(r=>{
+    const wh = r.webhook_url;
+    html += `
+      <div class="qcard">
+        <div class="qtype">Review case · ${escapeHtml(r.email_id)}</div>
+        <div class="qtitle">${escapeHtml(r.review_reason || 'Needs human review')}</div>
+        <div class="qmeta">Opened ${r.created_at ? new Date(r.created_at).toLocaleString() : '—'}</div>
+        <div class="qactions">
+          ${wh ? `
+          <button class="btn small primary" data-webhook="${escapeHtml(wh)}" data-payload='{"decision":"CONFIRM_OK","reviewer":"dashboard_reviewer"}'>Confirm OK</button>
+          <button class="btn small" data-webhook="${escapeHtml(wh)}" data-payload='{"decision":"CONFIRM_MISMATCH","reviewer":"dashboard_reviewer"}'>Confirm mismatch</button>
+          <button class="btn small" data-webhook="${escapeHtml(wh)}" data-payload='{"decision":"RETRY","reviewer":"dashboard_reviewer"}'>Retry check</button>
+          <button class="btn small" data-webhook="${escapeHtml(wh)}" data-payload='{"decision":"CLOSE","reviewer":"dashboard_reviewer"}'>Close</button>`
+          : `<span class="none">No resume webhook on this case</span>`}
+        </div>
+        <div class="qresult"></div>
+      </div>`;
+  });
+
+  draftMessages.forEach(m=>{
+    const fields = defectFields(m.defect_fields);
+    html += `
+      <div class="qcard">
+        <div class="qtype">Outbound draft · ${escapeHtml(m.email_id)}</div>
+        <div class="qtitle">${escapeHtml(m.subject || 'Correction request')}</div>
+        <div class="qmeta">To ${escapeHtml(m.to_address || '—')}${fields.length ? ' · ' + fields.map(fmtField).join(', ') : ''}</div>
+        <div class="qactions">
+          ${m.approval_webhook_url ? `
+          <button class="btn small primary" data-webhook="${escapeHtml(m.approval_webhook_url)}" data-payload='{"decision":"APPROVE","reviewer":"dashboard_reviewer"}'>Approve & send</button>
+          <button class="btn small" data-webhook="${escapeHtml(m.approval_webhook_url)}" data-payload='{"decision":"REJECT","reviewer":"dashboard_reviewer"}'>Reject</button>`
+          : `<span class="none">Waiting on n8n to open an approval webhook</span>`}
+        </div>
+        <div class="qresult"></div>
+      </div>`;
+  });
+
+  awaitingDoc.forEach(m=>{
+    html += `
+      <div class="qcard">
+        <div class="qtype">Awaiting new document · ${escapeHtml(m.email_id)}</div>
+        <div class="qtitle">Correction sent to ${escapeHtml(m.to_address || 'sender')} — waiting for the replacement</div>
+        <div class="qmeta">Enter the email ID of the resend once it arrives (e.g. email_052)</div>
+        <div class="qactions" style="gap:8px;">
+          <input type="text" class="replacement-input" placeholder="email_052" style="background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:12px;padding:6px 8px;width:110px;">
+          <button class="btn small primary" data-webhook="${escapeHtml(m.reprocess_webhook_url)}" data-replacement-btn="1">Submit & reprocess</button>
+        </div>
+        <div class="qresult"></div>
+      </div>`;
+  });
+
+  queue.innerHTML = html;
+
+  queue.querySelectorAll('button[data-webhook]:not([data-replacement-btn])').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const card = btn.closest('.qcard');
+      const resultEl = card.querySelector('.qresult');
+      const payload = JSON.parse(btn.dataset.payload || '{}');
+      fireWebhook(btn.dataset.webhook, btn, resultEl, payload);
+    });
+  });
+
+  queue.querySelectorAll('button[data-replacement-btn]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const card = btn.closest('.qcard');
+      const resultEl = card.querySelector('.qresult');
+      const input = card.querySelector('.replacement-input');
+      const val = (input.value || '').trim();
+      if(!/^email_\d{3}$/.test(val)){
+        resultEl.classList.add('show','failure');
+        resultEl.textContent = '✗ Enter an email ID in the form email_052.';
+        return;
+      }
+      fireWebhook(btn.dataset.webhook, btn, resultEl, { replacement_email_id: val });
+    });
+  });
+}
+
+async function loadAll(){
+  setLive(false, 'Syncing…');
+  try{
+    const [emails, comps, reviewCases, outboundMessages] = await Promise.all([
+      sbGet('emails?select=email_id,sender,subject,category,status,review_reason,has_defect,defect_fields,comparison_summary,created_at&order=created_at.desc'),
+      sbGet('comparisons?select=email_id,sender,subject,category,status,review_reason,has_defect,defect_fields,comparison_summary,recommended_action,processed_at&order=processed_at.desc.nullslast'),
+      sbGet('review_cases?select=id,email_id,status,review_reason,created_at,webhook_url&order=created_at.desc'),
+      sbGet('outbound_messages?select=id,email_id,status,to_address,subject,defect_fields,approval_webhook_url,reprocess_webhook_url,replacement_email_id,created_at&order=created_at.desc')
+    ]);
+
+    emailsById = {};
+    emails.forEach(e => emailsById[e.email_id] = e);
+    comparisons = comps;
+
+    renderKpis();
+    renderLedger();
+    renderQueue(reviewCases, outboundMessages);
+    setLive(true, `Live — synced ${new Date().toLocaleTimeString()}`);
+  } catch(err){
+    setLive(false, `Connection failed — ${err.message}`);
+    const hint = (err.message || '').toLowerCase().includes('failed to fetch')
+      ? ' This usually means the browser blocked the cross-origin request (ad blocker, privacy extension, or restrictive network) — try disabling extensions for this page, or a different browser.'
+      : '';
+    document.getElementById('ledgerBody').innerHTML = `<tr><td colspan="5" class="err">Couldn't reach Supabase: ${escapeHtml(err.message)}.${hint}</td></tr>`;
+    document.getElementById('queue').innerHTML = `<div class="err">Couldn't reach Supabase: ${escapeHtml(err.message)}.${hint}</div>`;
+  }
+}
+
+const WORKFLOW_C_WEBHOOK = 'https://texr.app.n8n.cloud/webhook/workflow-c-run';
+
+document.getElementById('runBtn').addEventListener('click', async ()=>{
+  const input = document.getElementById('runEmailId');
+  const btn = document.getElementById('runBtn');
+  const resultEl = document.getElementById('runResult');
+  const val = (input.value || '').trim();
+  resultEl.style.display = 'block';
+  if(!/^email_\d{3}$/.test(val)){
+    resultEl.style.color = 'var(--mismatch)';
+    resultEl.textContent = '✗ Enter an email ID in the form email_050.';
+    return;
+  }
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Starting…';
+  resultEl.style.color = 'var(--text-dim)';
+  resultEl.textContent = `Calling ${WORKFLOW_C_WEBHOOK}…`;
+  try{
+    const res = await fetch(WORKFLOW_C_WEBHOOK, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email_id: val })
+    });
+    const text = await res.text().catch(()=> '');
+    if(res.ok){
+      resultEl.style.color = 'var(--ok)';
+      resultEl.textContent = `✓ Started (${res.status}). SI/BL comparison runs in n8n — refresh in a few seconds to see it land in the ledger.`;
+    } else {
+      resultEl.style.color = 'var(--mismatch)';
+      resultEl.textContent = `✗ n8n responded ${res.status}: ${text.slice(0,200)}`;
+    }
+  } catch(err){
+    resultEl.style.color = 'var(--mismatch)';
+    resultEl.textContent = `✗ Request blocked or failed (${err.message}).`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
+
+document.getElementById('refreshBtn').addEventListener('click', loadAll);
+loadAll();
+</script>
+</body>
+</html>
