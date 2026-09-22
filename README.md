@@ -4,6 +4,8 @@ SDOC Control Tower is an AI-assisted shipping-document exception-management prot
 
 **Live prototype:** https://pyaeheinkhant-commits.github.io/sdoc-dashboard/
 
+**Public workflow canvas:** https://pyaeheinkhant-commits.github.io/sdoc-dashboard/workflow-viewer.html
+
 ## What It Does
 
 - Classifies incoming messages as BL comparison, SI request, invoice query, general, or spam.
@@ -65,6 +67,8 @@ n8n/workflows/
 ```
 
 See [n8n/README.md](n8n/README.md) for import steps, required variables, and credential setup.
+
+For a public, interactive read-only version of the n8n canvases, open the [workflow viewer](workflow-viewer.html). It renders the sanitized workflow exports and does not provide access to the live n8n Cloud workspace.
 
 ## Run Locally
 

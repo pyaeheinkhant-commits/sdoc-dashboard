@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDOC Workflow Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/workflow-viewer.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="./">SDOC <span>Control Tower</span></a>
+  <div class="toolbar">
+    <label for="workflowSelect">Workflow</label>
+    <select id="workflowSelect"></select>
+    <button id="zoomOut" type="button" title="Zoom out">-</button>
+    <button id="zoomReset" type="button" title="Fit workflow">Fit</button>
+    <button id="zoomIn" type="button" title="Zoom in">+</button>
+  </div>
+</header>
+<main>
+  <section class="intro">
+    <p class="eyebrow">PUBLIC READ-ONLY CANVAS</p>
+    <h1 id="workflowTitle">Loading workflow...</h1>
+    <p id="workflowMeta">Sanitized n8n workflow export. Credentials and secrets are not included.</p>
+  </section>
+  <section class="canvas-shell" id="canvasShell" aria-label="Workflow canvas">
+    <div class="canvas" id="canvas">
+      <svg class="edges" id="edges" aria-hidden="true"></svg>
+      <div class="nodes" id="nodes"></div>
+    </div>
+  </section>
+</main>
+<script src="assets/js/workflow-viewer.js"></script>
+</body>
+</html>
